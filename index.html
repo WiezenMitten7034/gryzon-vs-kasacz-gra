@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Gryzoń vs Kąsacz</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, #ffd6e8 0%, #ffe9c7 100%);
+    font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif;
+    padding: 12px;
+  }
+  #wrap {
+    text-align: center;
+    width: 100%;
+    max-width: 800px;
+  }
+  h1 {
+    color: #d63384;
+    text-shadow: 2px 2px 0 #fff;
+    margin-bottom: 6px;
+    font-size: clamp(18px, 5vw, 28px);
+  }
+  #sub {
+    color: #a5527a;
+    margin-bottom: 14px;
+    font-size: 14px;
+  }
+  #gameCanvas {
+    background: #fff8ef;
+    border: 5px solid #d63384;
+    border-radius: 14px;
+    box-shadow: 0 8px 20px rgba(214,51,132,0.3);
+    touch-action: manipulation;
+    width: 100%;
+    max-width: 800px;
+    height: auto;
+    display: block;
+  }
+  #overlay {
+    position: relative;
+    width: 100%;
+    line-height: 0;
+  }
+  .panel {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.92);
+    border-radius: 10px;
+    gap: 14px;
+  }
+  .hidden { display: none !important; }
+  .charBtn {
+    width: 180px;
+    padding: 14px;
+    border-radius: 14px;
+    border: 3px solid #d63384;
+    background: #fff0f6;
+    font-size: 17px;
+    font-weight: bold;
+    color: #d63384;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .charBtn:hover {
+    background: #ffd6e8;
+    transform: scale(1.05);
+  }
+  .charRow {
+    display: flex;
+    gap: 20px;
+  }
+  @media (max-width: 480px) {
+    .charBtn {
+      width: 38vw;
+      padding: 10px 6px;
+      font-size: 14px;
+    }
+    .charRow { gap: 10px; }
+    #scoreBox, #hint { font-size: 12px; }
+    #sub { font-size: 12px; }
+    #startBtn, #restartBtn { padding: 8px 18px; font-size: 14px; }
+  }
+  #startBtn, #restartBtn {
+    padding: 10px 26px;
+    border-radius: 20px;
+    border: none;
+    background: #d63384;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  #startBtn:hover, #restartBtn:hover { background: #b3216b; }
+  #scoreBox {
+    margin-top: 10px;
+    color: #a5527a;
+    font-size: 16px;
+  }
+  #hint {
+    margin-top: 4px;
+    color: #c285a0;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>🐹 Gryzoń kontra Kąsacz 🐍</h1>
+  <div id="sub">Przeskocz nad szczękami, zanim cię złapią!</div>
+
+  <div id="overlay">
+    <canvas id="gameCanvas" width="800" height="320"></canvas>
+
+    <div id="selectPanel" class="panel">
+      <div style="font-size:18px; font-weight:bold; color:#d63384;">Wybierz postać:</div>
+      <div class="charRow">
+        <button class="charBtn" id="pickChomik">🐹<br>Gryzoń<br><span style="font-weight:normal; font-size:12px;">(chomik)</span></button>
+        <button class="charBtn" id="pickWaz">🐍<br>Kąsacz<br><span style="font-weight:normal; font-size:12px;">(wąż)</span></button>
+      </div>
+      <button id="startBtn" class="hidden">Start gry!</button>
+    </div>
+
+    <div id="gameOverPanel" class="panel hidden">
+      <div style="font-size:22px; font-weight:bold; color:#d63384;">Złapały Cię szczęki! 😵</div>
+      <div id="finalScore" style="color:#a5527a;"></div>
+      <button id="restartBtn">Spróbuj ponownie</button>
+    </div>
+  </div>
+
+  <div id="scoreBox">Wynik: <span id="liveScore">0</span></div>
+  <div id="hint">Sterowanie: SPACJA / strzałka w górę / kliknięcie / dotyk = skok</div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const GROUND_Y = 250;
+
+let chosenChar = null; // 'chomik' or 'waz'
+let gameRunning = false;
+let animId = null;
+
+const selectPanel = document.getElementById('selectPanel');
+const gameOverPanel = document.getElementById('gameOverPanel');
+const startBtn = document.getElementById('startBtn');
+const restartBtn = document.getElementById('restartBtn');
+const liveScoreEl = document.getElementById('liveScore');
+const finalScoreEl = document.getElementById('finalScore');
+
+document.getElementById('pickChomik').onclick = () => selectChar('chomik');
+document.getElementById('pickWaz').onclick = () => selectChar('waz');
+
+function selectChar(c) {
+  chosenChar = c;
+  [...document.querySelectorAll('.charBtn')].forEach(b => b.style.background = '#fff0f6');
+  (c === 'chomik' ? document.getElementById('pickChomik') : document.getElementById('pickWaz')).style.background = '#ffb3d1';
+  startBtn.classList.remove('hidden');
+}
+
+startBtn.onclick = () => {
+  selectPanel.classList.add('hidden');
+  startGame();
+};
+
+restartBtn.onclick = () => {
+  gameOverPanel.classList.add('hidden');
+  startGame();
+};
+
+// ---- Player state ----
+let player, obstacles, speed, score, gravity, frame;
+
+function initState() {
+  player = {
+    x: 90,
+    y: GROUND_Y,
+    w: 50,
+    h: 40,
+    vy: 0,
+    jumping: false,
+    legPhase: 0
+  };
+  obstacles = [];
+  speed = 6;
+  score = 0;
+  gravity = 0.85;
+  frame = 0;
+}
+
+function spawnObstacle() {
+  const size = 44 + Math.random() * 18;
+  obstacles.push({
+    x: W + 20,
+    w: size,
+    h: size * 0.7,
+    biteCycle: Math.random() * Math.PI * 2
+  });
+}
+
+let nextSpawnIn = 70;
+
+function startGame() {
+  initState();
+  gameRunning = true;
+  nextSpawnIn = 70;
+  loop();
+}
+
+function jump() {
+  if (!gameRunning) return;
+  if (!player.jumping) {
+    player.vy = -15.5;
+    player.jumping = true;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    jump();
+  }
+});
+canvas.addEventListener('mousedown', jump);
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {passive:false});
+
+function update() {
+  frame++;
+
+  // player physics
+  player.vy += gravity;
+  player.y += player.vy;
+  if (player.y > GROUND_Y) {
+    player.y = GROUND_Y;
+    player.vy = 0;
+    player.jumping = false;
+  }
+  player.legPhase += player.jumping ? 0 : 0.4;
+
+  // obstacles
+  nextSpawnIn--;
+  if (nextSpawnIn <= 0) {
+    spawnObstacle();
+    nextSpawnIn = Math.max(45, 90 - Math.floor(speed * 4) + Math.random()*30);
+  }
+
+  obstacles.forEach(o => { o.x -= speed; o.biteCycle += 0.25; });
+  obstacles = obstacles.filter(o => o.x + o.w > -10);
+
+  // score & difficulty
+  score += 0.15;
+  speed += 0.0025;
+
+  // collision
+  const pBox = { x: player.x + 8, y: player.y - player.h + 8, w: player.w - 16, h: player.h - 10 };
+  for (const o of obstacles) {
+    const oBox = { x: o.x + 6, y: GROUND_Y - o.h + 14, w: o.w - 12, h: o.h - 14 };
+    if (pBox.x < oBox.x + oBox.w && pBox.x + pBox.w > oBox.x &&
+        pBox.y < oBox.y + oBox.h && pBox.y + pBox.h > oBox.y) {
+      endGame();
+      return;
+    }
+  }
+
+  liveScoreEl.textContent = Math.floor(score);
+}
+
+function drawGround() {
+  ctx.strokeStyle = '#d63384';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y + 2);
+  ctx.lineTo(W, GROUND_Y + 2);
+  ctx.stroke();
+  // dashed texture
+  ctx.strokeStyle = '#f3b6cf';
+  ctx.lineWidth = 2;
+  for (let i = (-(frame*1.5*speed/6))%30; i < W; i += 30) {
+    ctx.beginPath();
+    ctx.moveTo(i, GROUND_Y + 10);
+    ctx.lineTo(i + 14, GROUND_Y + 10);
+    ctx.stroke();
+  }
+}
+
+function drawChomik(p) {
+  const bob = p.jumping ? 0 : Math.sin(p.legPhase) * 2;
+  const cx = p.x + p.w/2;
+  const cy = p.y - p.h/2 + bob;
+  // body
+  ctx.fillStyle = '#e8a33d';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 24, 19, 0, 0, Math.PI*2);
+  ctx.fill();
+  // belly
+  ctx.fillStyle = '#fbe3b8';
+  ctx.beginPath();
+  ctx.ellipse(cx+2, cy+6, 14, 11, 0, 0, Math.PI*2);
+  ctx.fill();
+  // ears
+  ctx.fillStyle = '#e8a33d';
+  ctx.beginPath();
+  ctx.arc(cx-14, cy-16, 7, 0, Math.PI*2);
+  ctx.arc(cx+2, cy-19, 7, 0, Math.PI*2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#3a2418';
+  ctx.beginPath();
+  ctx.arc(cx+12, cy-3, 2.5, 0, Math.PI*2);
+  ctx.fill();
+  // nose
+  ctx.fillStyle = '#a4502b';
+  ctx.beginPath();
+  ctx.arc(cx+22, cy+1, 2.5, 0, Math.PI*2);
+  ctx.fill();
+  // feet
+  ctx.fillStyle = '#a4502b';
+  const legOffset = p.jumping ? 0 : Math.sin(p.legPhase)*4;
+  ctx.fillRect(cx-12, cy+14, 8, 6+legOffset);
+  ctx.fillRect(cx+4, cy+14, 8, 6-legOffset);
+}
+
+function drawWaz(p) {
+  const bob = p.jumping ? 0 : Math.sin(p.legPhase) * 2;
+  const cx = p.x + p.w/2;
+  const cy = p.y - p.h/2 + bob;
+  ctx.strokeStyle = '#3fae5c';
+  ctx.lineWidth = 16;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const wob = p.jumping ? 0 : Math.sin(p.legPhase*1.5)*5;
+  ctx.moveTo(cx-22, cy+12+wob);
+  ctx.quadraticCurveTo(cx-10, cy-10-wob, cx+2, cy+2+wob);
+  ctx.quadraticCurveTo(cx+14, cy-14-wob, cx+22, cy-4);
+  ctx.stroke();
+  // belly pattern
+  ctx.fillStyle = '#cdeed8';
+  ctx.beginPath();
+  ctx.ellipse(cx+18, cy-4, 9, 8, 0, 0, Math.PI*2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#1d2b1f';
+  ctx.beginPath();
+  ctx.arc(cx+21, cy-7, 2, 0, Math.PI*2);
+  ctx.fill();
+  // tongue
+  ctx.strokeStyle = '#d6336c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx+28, cy-4);
+  ctx.lineTo(cx+35, cy-4);
+  ctx.moveTo(cx+35, cy-4);
+  ctx.lineTo(cx+38, cy-7);
+  ctx.moveTo(cx+35, cy-4);
+  ctx.lineTo(cx+38, cy-1);
+  ctx.stroke();
+}
+
+function drawObstacle(o) {
+  // jaws: szczęki that open/close (bite)
+  const openAmt = (Math.sin(o.biteCycle) * 0.5 + 0.5); // 0..1
+  const baseY = GROUND_Y;
+  const cx = o.x + o.w/2;
+  const gap = 6 + openAmt * (o.h * 0.55);
+
+  // upper jaw
+  ctx.fillStyle = '#7a2048';
+  ctx.beginPath();
+  ctx.moveTo(o.x, baseY - o.h);
+  ctx.lineTo(o.x + o.w, baseY - o.h);
+  ctx.lineTo(o.x + o.w, baseY - o.h + (o.h/2 - gap/2));
+  ctx.lineTo(o.x, baseY - o.h + (o.h/2 - gap/2));
+  ctx.closePath();
+  ctx.fill();
+  // upper teeth
+  ctx.fillStyle = '#fff';
+  const teeth = 4;
+  const tw = o.w / teeth;
+  for (let i=0;i<teeth;i++) {
+    ctx.beginPath();
+    const tx = o.x + i*tw;
+    const ty = baseY - o.h + (o.h/2 - gap/2);
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + tw/2, ty + 9);
+    ctx.lineTo(tx + tw, ty);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // lower jaw
+  ctx.fillStyle = '#7a2048';
+  ctx.beginPath();
+  ctx.moveTo(o.x, baseY - o.h/2 + gap/2);
+  ctx.lineTo(o.x + o.w, baseY - o.h/2 + gap/2);
+  ctx.lineTo(o.x + o.w, baseY);
+  ctx.lineTo(o.x, baseY);
+  ctx.closePath();
+  ctx.fill();
+  // lower teeth
+  ctx.fillStyle = '#fff';
+  for (let i=0;i<teeth;i++) {
+    ctx.beginPath();
+    const tx = o.x + i*tw;
+    const ty = baseY - o.h/2 + gap/2;
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + tw/2, ty - 9);
+    ctx.lineTo(tx + tw, ty);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // angry eyes above jaws
+  ctx.fillStyle = '#ffd43b';
+  ctx.beginPath();
+  ctx.arc(cx-8, baseY - o.h - 4, 3, 0, Math.PI*2);
+  ctx.arc(cx+8, baseY - o.h - 4, 3, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  // sky decor
+  ctx.fillStyle = '#ffe9c7';
+  ctx.fillRect(0,0,W,H);
+  drawGround();
+
+  obstacles.forEach(drawObstacle);
+
+  if (chosenChar === 'chomik') drawChomik(player);
+  else drawWaz(player);
+}
+
+function loop() {
+  if (!gameRunning) return;
+  update();
+  if (gameRunning) {
+    draw();
+    animId = requestAnimationFrame(loop);
+  }
+}
+
+function endGame() {
+  gameRunning = false;
+  cancelAnimationFrame(animId);
+  finalScoreEl.textContent = 'Twój wynik: ' + Math.floor(score);
+  gameOverPanel.classList.remove('hidden');
+}
+
+// initial idle draw
+function idleDraw() {
+  player = { x: 90, y: GROUND_Y, w: 50, h: 40, vy:0, jumping:false, legPhase:0 };
+  obstacles = [];
+  frame = 0;
+  chosenChar = chosenChar || 'chomik';
+  draw();
+}
+idleDraw();
+</script>
+</body>
+</html>
